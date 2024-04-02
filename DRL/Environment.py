@@ -6,40 +6,47 @@ import sys
 
 
 class CircularEnv(gym.Env):
-    def __init__(self, radius=1, step_size=0.1, render_mode='human', screen_size=1000):
+    def __init__(self, radius=1.0, step_size=0.1, render_mode='human', screen_size=1000, seed=202434):
         super(CircularEnv, self).__init__()
 
         self.radius = radius
         self.step_size = step_size
         self.render_mode = render_mode
-        # [x, y]表示位置
+        self.np_ramdom = np.random.default_rng(seed=seed)
         self.agent_position = np.array([0.0, 0.0], dtype=np.float32)
         # 方向角
-        self.head_angle = np.pi
+        self.head_angle = 0.0
         # 定义动作空间，turn & move
         self.action_space = spaces.Discrete(2)
         # 定义状态空间，roam state & dwell state
-        self.state_space = spaces.Discrete(10)
+        self.observation_space = spaces.Discrete(10)
         # 记录运动轨迹
         self.trajectory = []
-        # 初始化 Pygame
-        pygame.init()
-        # 设置屏幕尺寸
-        self.screen_size = screen_size
-        self.screen = pygame.display.set_mode((self.screen_size, self.screen_size))
+        if render_mode == 'human':
+            # 初始化 Pygame
+            pygame.init()
+            # 设置屏幕尺寸
+            self.screen_size = screen_size
+            self.screen = pygame.display.set_mode((self.screen_size, self.screen_size))
 
-    def reset(self):
+    @property
+    def observation(self):
+        distance_from_origin = np.linalg.norm(self.agent_position)
+        return int(distance_from_origin / self.radius * 9)
+
+    def reset(self, seed=None, *args):
         # 将Agent放在圆形区域中心
         self.agent_position = np.array([0.0, 0.0], dtype=np.float32)
-        self.head_angle = np.random.uniform(0, 2 * np.pi)
+        self.head_angle = self.np_random.uniform(0, 2 * np.pi)
         self.trajectory.append(self.agent_position.copy())
         # 重置轨迹
         self.trajectory = []
-        return 0
+        info = {}
+        return self.observation, info
 
     def step(self, action):
         if action == 0:
-            yaw_angle = np.random.uniform(-np.pi / 2, np.pi / 2)
+            yaw_angle = self.np_random.uniform(-np.pi / 2, np.pi / 2)
             self.head_angle += yaw_angle
 
         self.agent_position[0] += self.step_size * np.cos(self.head_angle)
@@ -58,11 +65,13 @@ class CircularEnv(gym.Env):
         else:
             reward = 0.5 / self.radius * distance_from_origin + 0.5
         # 定义是否终止的条件
-        done = False
+        terminated, truncated, info = False, False, {}
 
-        return int(distance_from_origin/self.radius*9), reward, done, {}
+        return self.observation, reward, terminated, truncated, info
 
     def render(self, mode='human'):
+        if mode != 'human':
+            return
         # 渲染环境
         self.screen.fill((255, 255, 255))
 
@@ -82,11 +91,16 @@ class CircularEnv(gym.Env):
         # 更新显示
         pygame.display.flip()
 
-        # 处理退出事件
+        # 处理手动退出事件
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
+
+    def close(self):
+        if self.render_mode == 'human':
+            pygame.quit()
+        sys.exit()
 
 
 if __name__ == '__main__':
@@ -101,6 +115,4 @@ if __name__ == '__main__':
         env.render()
         # print(f"Position: {observation}, Reward: {reward}, Done: {done}")
 
-    pygame.quit()
-    # 等待关闭窗口事件
-    pygame.event.wait()
+    env.close()
