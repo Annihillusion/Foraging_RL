@@ -1,2 +1,7 @@
-/*__pycache__
-/.idea
+**/__pycache__/
+**/.DS_Store
+.idea
+data/
+DRL/logs/
+DRL/trained_models/
+

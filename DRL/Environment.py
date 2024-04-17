@@ -1,12 +1,18 @@
+import os
+import sys
+
+import numpy as np
+import torch
+import pygame
 import gymnasium as gym
 from gymnasium import spaces
-import numpy as np
-import pygame
-import sys
+
+from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecEnvWrapper
+from stable_baselines3.common.monitor import Monitor
 
 
 class CircularEnv(gym.Env):
-    def __init__(self, radius=1.0, step_size=0.1, render_mode='human', screen_size=1000, seed=202434):
+    def __init__(self, radius=1.0, step_size=0.1, render_mode=None, screen_size=1000, seed=202434):
         super(CircularEnv, self).__init__()
 
         self.radius = radius
@@ -16,23 +22,23 @@ class CircularEnv(gym.Env):
         self.agent_position = np.array([0.0, 0.0], dtype=np.float32)
         # 方向角
         self.head_angle = 0.0
+        self.clockwise = 1
         # 定义动作空间，turn & move
         self.action_space = spaces.Discrete(2)
-        # 定义状态空间，roam state & dwell state
-        self.observation_space = spaces.Discrete(10)
+        self.state = 0
+        # 定义观察空间
+        self.observation_space = spaces.Box(0, 1, shape=[2], dtype=np.float32)
         # 记录运动轨迹
         self.trajectory = []
-        if render_mode == 'human':
-            # 初始化 Pygame
-            pygame.init()
-            # 设置屏幕尺寸
-            self.screen_size = screen_size
-            self.screen = pygame.display.set_mode((self.screen_size, self.screen_size))
+        self.pygame_init = False
+        self.screen_size = screen_size
+        self.screen = None
 
     @property
     def observation(self):
         distance_from_origin = np.linalg.norm(self.agent_position)
-        return int(distance_from_origin / self.radius * 9)
+        # return np.array(distance_from_origin / self.radius * 9)
+        return np.zeros(2)
 
     def reset(self, seed=None, *args):
         # 将Agent放在圆形区域中心
@@ -45,33 +51,59 @@ class CircularEnv(gym.Env):
         return self.observation, info
 
     def step(self, action):
-        if action == 0:
-            yaw_angle = self.np_random.uniform(-np.pi / 2, np.pi / 2)
-            self.head_angle += yaw_angle
+        # if action == 0:
+        #     yaw_angle = self.np_random.uniform(-np.pi / 2, np.pi / 2)
+        #     self.head_angle += yaw_angle
+        #
+        # self.agent_position[0] += self.step_size * np.cos(self.head_angle)
+        # self.agent_position[1] += self.step_size * np.sin(self.head_angle)
+        self.move(action)
 
-        self.agent_position[0] += self.step_size * np.cos(self.head_angle)
-        self.agent_position[1] += self.step_size * np.sin(self.head_angle)
-
-        # 限制Agent在圆形区域内移动
         distance_from_origin = np.linalg.norm(self.agent_position)
+        # 定义奖励
+        if distance_from_origin > self.radius:
+            reward = -1
+        else:
+            # reward = 0.5 / self.radius * distance_from_origin + 0.5
+            reward = 1
+        # 限制Agent在圆形区域内移动
         if distance_from_origin > self.radius:
             self.agent_position /= distance_from_origin  # 将位置归一化到圆形边界
             self.agent_position *= self.radius
         # 更新轨迹
         self.trajectory.append(self.agent_position.copy())
-        # 定义奖励，中心0.5，边界1，线性变化；界外-1
-        if distance_from_origin > self.radius:
-            reward = -1
-        else:
-            reward = 0.5 / self.radius * distance_from_origin + 0.5
+
         # 定义是否终止的条件
         terminated, truncated, info = False, False, {}
 
         return self.observation, reward, terminated, truncated, info
 
-    def render(self, mode='human'):
-        if mode != 'human':
+    def move(self, action):
+        # roaming
+        if action == 0:
+            # 不是连续的roaming，重新选择偏转方向
+            if self.state == 1:
+                self.state = 0
+                self.clockwise = np.random.choice([-1, 1], 1)
+            turn_angle = np.random.normal(30/180*np.pi, 1)
+            self.head_angle += turn_angle * self.clockwise
+            self.agent_position[0] += self.step_size * np.cos(self.head_angle)
+            self.agent_position[1] += self.step_size * np.sin(self.head_angle)
+        # dwelling
+        elif action == 1:
+            self.state = 1
+        else:
+            raise NotImplementedError
+
+    def render(self, render_mode=None):
+        if self.render_mode != 'human':
             return
+        if not self.pygame_init:
+            # 初始化 Pygame
+            pygame.init()
+            # 设置屏幕尺寸
+            self.screen = pygame.display.set_mode((self.screen_size, self.screen_size))
+            self.pygame_init = True
         # 渲染环境
         self.screen.fill((255, 255, 255))
 
@@ -103,16 +135,84 @@ class CircularEnv(gym.Env):
         sys.exit()
 
 
+class VecPyTorch(VecEnvWrapper):
+    def __init__(self, venv, device):
+        """Return only every `skip`-th frame"""
+        super(VecPyTorch, self).__init__(venv)
+        self.device = device
+        # TODO: Fix data types
+
+    def reset(self):
+        obs = self.venv.reset()
+        obs = torch.from_numpy(obs).float().to(self.device)
+        return obs
+
+    def step_async(self, actions):
+        if isinstance(actions, torch.LongTensor):
+            # Squeeze the dimension for discrete actions
+            actions = actions.squeeze(1)
+        actions = actions.cpu().numpy()
+        self.venv.step_async(actions)
+
+    def step_wait(self):
+        obs, reward, done, info = self.venv.step_wait()
+        obs = torch.from_numpy(obs).float().to(self.device)
+        reward = torch.from_numpy(reward).unsqueeze(dim=1).float()
+        return obs, reward, done, info
+
+
+def make_env(env_id, seed, rank, log_dir, allow_early_resets):
+    def _thunk():
+        if env_id == 'CircularEnv':
+            env = CircularEnv(seed=seed+rank)
+        else:
+            raise NotImplementedError
+
+        if log_dir is not None:
+            env = Monitor(env,
+                          os.path.join(log_dir, str(rank)),
+                          allow_early_resets=allow_early_resets)
+        return env
+
+    return _thunk
+
+
+def make_vec_envs(env_name,
+                  seed,
+                  num_processes,
+                  gamma,
+                  log_dir,
+                  device,
+                  allow_early_resets,
+                  num_frame_stack=None):
+    envs = [
+        make_env(env_name, seed, i, log_dir, allow_early_resets)
+        for i in range(num_processes)
+    ]
+
+    if len(envs) > 1:
+        envs = SubprocVecEnv(envs)
+    else:
+        envs = DummyVecEnv(envs)
+
+    # if len(envs.observation_space.shape) == 1:
+    #     if gamma is None:
+    #         envs = VecNormalize(envs, norm_reward=False)
+    #     else:
+    #         envs = VecNormalize(envs, gamma=gamma)
+
+    envs = VecPyTorch(envs, device)
+    return envs
+
+
 if __name__ == '__main__':
     # 创建圆形环境
     radius = 5.0
-    env = CircularEnv(radius, step_size=0.1)
+    env = CircularEnv(radius, step_size=0.1, render_mode='human')
 
-    # 测试环境
     for _ in range(2000):
         action = env.action_space.sample()  # 随机选择一个动作
-        observation, reward, done, _ = env.step(action)
+        observation, reward, done, _, _ = env.step(action)
         env.render()
-        # print(f"Position: {observation}, Reward: {reward}, Done: {done}")
 
     env.close()

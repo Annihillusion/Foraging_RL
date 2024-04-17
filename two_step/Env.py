@@ -2,7 +2,7 @@ import numpy as np
 
 
 class TwoStep:
-    def __init__(self, roam_mat, dwell_mat, reward, state_dim=3):
+    def __init__(self, roam_mat, dwell_mat, reward, state_dim=2):
         self.trans_mat = np.array([roam_mat, dwell_mat])
         self.state_dim = roam_mat.shape[0]
         self.random_gen = np.random.default_rng(202434)

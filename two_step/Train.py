@@ -33,5 +33,6 @@ def train_agent(agent, env, epochs, steps, record_path, model_path=None):
 
     # rec[0]: state, rec[1]: action, rec[3]: reward
     # [s/a/r, epochs, time]
-    np.save(record_path, np.array([state_collector, action_collector, reward_collector]))
+    trajectory = np.array([state_collector, action_collector, reward_collector])
+    np.save(record_path, trajectory)
 

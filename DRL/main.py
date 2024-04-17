@@ -1,39 +1,54 @@
-import argparse
-from two_step.two_step import Agents
-import Environment
+import torch
+import os
+from tqdm import tqdm
+
+from Environment import make_vec_envs
+from params import parse_args
+from train import train_one_epoch
+from a2c_ppo_acktr.model import Policy
+from a2c_ppo_acktr.storage import RolloutStorage
+from a2c_ppo_acktr import algo, utils
 
 
-def train(env, agent, num_episodes, max_steps, render):
-    for episode in range(num_episodes):
-        state = env.reset()
-        action = agent.choose_action(state)
+def main():
+    args = parse_args()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f'Using device: {device}')
+    os.makedirs(args.save_dir, exist_ok=True)
+    os.makedirs(args.log_dir, exist_ok=True)
 
-        for step in range(max_steps):
-            next_state, reward, done, _ = agent.env.step(action)
-            next_action = agent.choose_action(next_state)
+    envs = make_vec_envs(args.env_name, args.seed, args.num_processes,
+                         args.gamma, args.log_dir, device, True)
 
-            # 更新Q值
-            agent.update(state, action, reward, next_state, next_action)
+    actor_critic = Policy(
+        envs.observation_space.shape,
+        envs.action_space,
+        base_kwargs={'recurrent': args.recurrent_policy})
+    actor_critic.to(device)
 
-            state = next_state
-            action = next_action
-            if render is not None:
-                env.render()
-            if done:
-                return
+    agent = algo.PPO(
+        actor_critic,
+        args.clip_param,
+        args.ppo_epoch,
+        args.num_mini_batch,
+        args.value_loss_coef,
+        args.entropy_coef,
+        lr=args.lr,
+        eps=args.eps,
+        max_grad_norm=args.max_grad_norm)
+
+    rollouts = RolloutStorage(args.num_update_steps, args.num_processes,
+                              envs.observation_space.shape, envs.action_space,
+                              actor_critic.recurrent_hidden_state_size)
+    rollouts.to(device)
+
+    for epoch in range(args.num_epochs):
+        train_one_epoch(envs, agent, rollouts, args, epoch)
+        torch.save([
+                actor_critic,
+                getattr(utils.get_vec_normalize(envs), 'obs_rms', None)
+            ], os.path.join(args.save_dir, 'ppo.pt'))
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--alpha", default=0.7, type=float)  # learning rate
-    parser.add_argument("--gamma", default=0.99, type=float)  # discount factor
-    parser.add_argument("--epsilon", default=0.1, type=float)
-    parser.add_argument("--train_episodes", default=100, type=int)
-    parser.add_argument("--test_episodes", default=100, type=int)
-    parser.add_argument("--max_steps", default=1000, type=int)
-    parser.add_argument("--render", default='human', type=str)
-    args = parser.parse_args()
-
-    env = Environment.CircularEnv(render_mode=args.render)
-    agent = Agents.SARSA(env, args.alpha, args.gamma, args.epsilon)
-    train(env, agent, args.train_episodes, args.max_steps, args.render)
+    main()
