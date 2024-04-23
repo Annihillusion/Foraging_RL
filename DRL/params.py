@@ -47,10 +47,10 @@ def parse_args():
                         help='directory to save agent logs (default: trained_models)')
     parser.add_argument('--num-update-steps', type=int, default=5,
                         help='number of forward steps in A2C (default: 5)')
-    parser.add_argument('--num-epoch-steps', type=int, default=10e2,
+    parser.add_argument('--num-episode-steps', type=int, default=1000,
                         help='number of environment steps to train in single epoch')
-    parser.add_argument('--num_epochs', type=int, default=5)
-    parser.add_argument('--hidden_size', type=int, default=4)
+    parser.add_argument('--num-episodes', type=int, default=10)
+    parser.add_argument('--hidden-size', type=int, default=4)
     parser.add_argument("--render", type=str, default=None)
 
     args = parser.parse_args()

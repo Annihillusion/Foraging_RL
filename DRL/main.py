@@ -1,24 +1,24 @@
-import torch
 import os
-from tqdm import tqdm
+import numpy as np
+import torch
+from datetime import datetime
 
 from Environment import make_vec_envs
 from params import parse_args
-from train import train_one_epoch
+from train import train_one_episode
 from a2c_ppo_acktr.model import Policy
 from a2c_ppo_acktr.storage import RolloutStorage
 from a2c_ppo_acktr import algo, utils
 
 
-def main():
-    args = parse_args()
+def train(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f'Using device: {device}')
     os.makedirs(args.save_dir, exist_ok=True)
     os.makedirs(args.log_dir, exist_ok=True)
 
     envs = make_vec_envs(args.env_name, args.seed, args.num_processes,
-                         args.gamma, args.log_dir, device, True)
+                         args.gamma, args.log_dir, device, True, args.num_episode_steps)
 
     actor_critic = Policy(
         envs.observation_space.shape,
@@ -42,13 +42,25 @@ def main():
                               actor_critic.recurrent_hidden_state_size)
     rollouts.to(device)
 
-    for epoch in range(args.num_epochs):
-        train_one_epoch(envs, agent, rollouts, args, epoch)
+    action_collector = []
+    reward_collector = []
+    formatted_datetime = datetime.now().strftime('%Y-%m-%d %H:%M')
+    file_name = os.path.join(str(args.num_episodes) + 'episodes ' + formatted_datetime)
+
+    for episode in range(args.num_episodes):
+        episode_action, episode_reward, _ = train_one_episode(envs, agent, rollouts, args, episode)
+        action_collector.append(episode_action)
+        reward_collector.append(episode_reward)
         torch.save([
                 actor_critic,
-                getattr(utils.get_vec_normalize(envs), 'obs_rms', None)
-            ], os.path.join(args.save_dir, 'ppo.pt'))
+                getattr(utils.get_vec_normalize(envs), 'obs_rms', None)],
+                os.path.join(args.save_dir, file_name + '.pt'))
+
+    action_collector = np.array(action_collector)
+    reward_collector = np.array(reward_collector)
+    np.savez(os.path.join(args.log_dir, file_name), action=action_collector, reward=reward_collector)
 
 
 if __name__ == '__main__':
-    main()
+    args = parse_args()
+    train(args)

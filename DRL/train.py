@@ -4,19 +4,22 @@ import torch
 import numpy as np
 from tqdm import tqdm
 
-
 from a2c_ppo_acktr import algo, utils
 
 
-def train_one_epoch(envs, agent, rollouts, args, epoch_index):
+def train_one_episode(envs, agent, rollouts, args, episode_index):
     obs = envs.reset()
     rollouts.obs[0].copy_(obs)
 
     episode_rewards = deque(maxlen=10)
-    num_updates = int(args.num_epoch_steps) // args.num_update_steps // args.num_processes
+    # num_updates = int(args.num_episode_steps) // args.num_update_steps // args.num_processes
+    num_updates = int(args.num_episode_steps) // args.num_update_steps
     loss_record = np.empty([num_updates, 3])
 
-    for j in tqdm(range(num_updates), desc=f"Epoch {epoch_index + 1}/{args.num_epochs}"):
+    action_collector = []
+    reward_collector = []
+
+    for j in tqdm(range(num_updates), desc=f"Episode {episode_index + 1}/{args.num_episodes}"):
         if args.use_linear_lr_decay:
             # decrease learning rate linearly
             utils.update_linear_schedule(
@@ -32,6 +35,9 @@ def train_one_epoch(envs, agent, rollouts, args, epoch_index):
 
             # Obser reward and next obs
             obs, reward, done, infos = envs.step(action)
+
+            action_collector.append(action.view(-1))
+            reward_collector.append(reward.view(-1))
 
             for info in infos:
                 if 'episode' in info.keys():
@@ -55,10 +61,11 @@ def train_one_epoch(envs, agent, rollouts, args, epoch_index):
                                  args.gae_lambda, False)
         # value_loss, action_loss, dist_entropy
         loss_record[j] = agent.update(rollouts)
-
         rollouts.after_update()
 
-    return loss_record
+    action_collector = np.array(action_collector)
+    reward_collector = np.array(reward_collector)
+    return action_collector, reward_collector, loss_record
 
 
         # save for every interval-th episode or for the last epoch
