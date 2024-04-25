@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import torch
+import shelve
 from datetime import datetime
 
 from Environment import make_vec_envs
@@ -12,7 +13,8 @@ from a2c_ppo_acktr import algo, utils
 
 
 def train(args):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cpu" if torch.cuda.is_available() else "cpu")
+    #device = torch.device('cpu')
     print(f'Using device: {device}')
     os.makedirs(args.save_dir, exist_ok=True)
     os.makedirs(args.log_dir, exist_ok=True)
@@ -23,7 +25,7 @@ def train(args):
     actor_critic = Policy(
         envs.observation_space.shape,
         envs.action_space,
-        base_kwargs={'recurrent': args.recurrent_policy})
+        base_kwargs={'recurrent': args.recurrent_policy, 'hidden_size': args.hidden_size})
     actor_critic.to(device)
 
     agent = algo.PPO(
@@ -44,8 +46,11 @@ def train(args):
 
     action_collector = []
     reward_collector = []
-    formatted_datetime = datetime.now().strftime('%Y-%m-%d %H:%M')
-    file_name = os.path.join(str(args.num_episodes) + 'episodes ' + formatted_datetime)
+
+    file_name = datetime.now().strftime('%Y-%m-%d %H-%M')
+    # with shelve.open(os.path.join(args.log_dir, file_name + ' args.shelve')) as shelf:
+    #     for arg in vars(args):
+    #         shelf[arg] = getattr(args, arg)
 
     for episode in range(args.num_episodes):
         episode_action, episode_reward, _ = train_one_episode(envs, agent, rollouts, args, episode)
@@ -56,9 +61,9 @@ def train(args):
                 getattr(utils.get_vec_normalize(envs), 'obs_rms', None)],
                 os.path.join(args.save_dir, file_name + '.pt'))
 
-    action_collector = np.array(action_collector)
-    reward_collector = np.array(reward_collector)
-    np.savez(os.path.join(args.log_dir, file_name), action=action_collector, reward=reward_collector)
+        actions = np.array(action_collector)
+        rewards = np.array(reward_collector)
+        np.savez(os.path.join(args.log_dir, file_name), action=actions, reward=rewards)
 
 
 if __name__ == '__main__':

@@ -36,8 +36,8 @@ def train_one_episode(envs, agent, rollouts, args, episode_index):
             # Obser reward and next obs
             obs, reward, done, infos = envs.step(action)
 
-            action_collector.append(action.view(-1))
-            reward_collector.append(reward.view(-1))
+            action_collector.append(action.view(-1).cpu())
+            reward_collector.append(reward.view(-1).cpu())
 
             for info in infos:
                 if 'episode' in info.keys():

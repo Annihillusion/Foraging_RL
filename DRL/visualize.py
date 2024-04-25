@@ -3,6 +3,7 @@ import torch
 from Environment import make_vec_envs, CircularEnv
 from params import parse_args
 from a2c_ppo_acktr.utils import get_render_func
+from a2c_ppo_acktr.model import Policy
 
 
 def draw_trace(actor_critic, args):
@@ -18,7 +19,7 @@ def draw_trace(actor_critic, args):
 
     for i in range(1000):
         with torch.no_grad():
-            _, action, _, eval_recurrent_hidden_states = actor_critic.act(
+            _, action, _, recurrent_hidden_states = actor_critic.act(
                 obs,
                 recurrent_hidden_states,
                 masks,
@@ -32,5 +33,5 @@ def draw_trace(actor_critic, args):
 
 if __name__ == '__main__':
     args = parse_args()
-    actor_critic, obs_rms = torch.load(os.path.join(args.save_dir, "ppo_20.pt"), map_location='cpu')
+    actor_critic, obs_rms = torch.load(os.path.join(args.save_dir, "2024-04-25 17-10.pt"), map_location="cpu")
     draw_trace(actor_critic, args)

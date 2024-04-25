@@ -45,12 +45,14 @@ class CircularEnv(gym.Env):
         return np.zeros(2)
 
     def reset(self, seed=None, *args):
-        # 将Agent放在圆形区域中心
-        self.agent_position = np.array([0.0, 0.0], dtype=np.float32)
+        # 将Agent放在菌斑边缘
         self.head_angle = self.np_random.uniform(0, 2 * np.pi)
-        self.trajectory.append(self.agent_position.copy())
+        x = -np.cos(self.head_angle) * self.radius
+        y = -np.sin(self.head_angle) * self.radius
+        self.agent_position = np.array([x, y], dtype=np.float32)
         # 重置轨迹
         self.trajectory = []
+        self.trajectory.append(self.agent_position.copy())
         info = {}
         return self.observation, info
 
@@ -89,7 +91,7 @@ class CircularEnv(gym.Env):
             # if self.state == 1:
             #     self.state = 0
             self.clockwise = np.random.choice([-1, 1], 1)
-            turn_angle = np.random.normal(30/180*np.pi, 1)
+            turn_angle = np.random.normal(1/6 * np.pi, 1)
             self.head_angle += turn_angle * self.clockwise
             self.agent_position[0] += self.step_size * np.cos(self.head_angle)
             self.agent_position[1] += self.step_size * np.sin(self.head_angle)

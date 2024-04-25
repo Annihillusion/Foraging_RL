@@ -105,5 +105,5 @@ def draw_average_reward(file_path):
 
 
 if __name__ == '__main__':
-    file = 'logs/10episodes 2024-04-19 17:33.npz'
+    file = 'logs/2024-04-23 17-33.npz'
     draw_average_reward(file)
