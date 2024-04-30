@@ -25,10 +25,28 @@ class CircularEnv(gym.Env):
         self.head_angle = 0.0
         self.clockwise = 1
         # 定义动作空间，turn & move
-        self.action_space = spaces.Discrete(2)
+        # self.action_space = spaces.Discrete(2)
+        self.action_space = spaces.Box(np.array([0.0, -np.pi/2]), np.array([0.1, np.pi/2]))
         self.state = 0
         # 定义观察空间
-        self.observation_space = spaces.Box(0, 1, shape=[2], dtype=np.float32)
+        self.observation_space = spaces.Box(np.array([0, -100]), np.array([4, 100]))
+        # 定义奖励函数
+        self.concentration_func = np.poly1d([4.642225e+05,
+                                             -2.852648e+06,
+                                             7.726167e+06,
+                                             -1.212951e+07,
+                                             1.221637e+07,
+                                             -8.258561e+06,
+                                             3.818097e+06,
+                                             -1.213596e+06,
+                                             2.665742e+05,
+                                             -4.167904e+04,
+                                             5.021120e+03,
+                                             -4.865155e+02,
+                                             2.994606e+01,
+                                             1.504611e-01,
+                                             4.419983e-01
+                                             ])
         # 记录运动轨迹
         self.trajectory = []
         self.pygame_init = False
@@ -40,9 +58,13 @@ class CircularEnv(gym.Env):
 
     @property
     def observation(self):
-        distance_from_origin = np.linalg.norm(self.agent_position)
-        # return np.array(distance_from_origin / self.radius * 9)
-        return np.zeros(2)
+        # Normalized to [0, 1]
+        r = np.linalg.norm(self.agent_position) / self.radius
+        concentration = self.concentration_func(r)
+        df = self.concentration_func.deriv(r)
+        # gradient = df(r) * (self.agent_position[0]/r*np.cos(self.head_angle) + self.agent_position[1]/r*np.sin(self.head_angle))
+        gradient = df(r) * np.cos(self.head_angle)
+        return np.array([concentration, gradient])
 
     def reset(self, seed=None, *args):
         # 将Agent放在菌斑边缘
@@ -65,20 +87,18 @@ class CircularEnv(gym.Env):
         # self.agent_position[1] += self.step_size * np.sin(self.head_angle)
         self.move(action)
 
-        distance_from_origin = np.linalg.norm(self.agent_position)
+        distance_from_center = np.linalg.norm(self.agent_position)
         # 定义奖励
-        if distance_from_origin > self.radius:
+        if distance_from_center > self.radius:
             reward = -1
         else:
-            reward = distance_from_origin / self.radius
-            # reward = 1
+            reward = self.concentration_func(distance_from_center / self.radius)
         # 限制Agent在圆形区域内移动
-        if distance_from_origin > self.radius:
-            self.agent_position /= distance_from_origin  # 将位置归一化到圆形边界
+        if distance_from_center > self.radius:
+            self.agent_position /= distance_from_center  # 将位置归一化到圆形边界
             self.agent_position *= self.radius
         # 更新轨迹
         self.trajectory.append(self.agent_position.copy())
-
         # 定义是否终止的条件
         terminated, truncated, info = False, False, {}
 
@@ -86,20 +106,25 @@ class CircularEnv(gym.Env):
 
     def move(self, action):
         # roaming
-        if action == 0:
-            # 不是连续的roaming，重新选择偏转方向
-            # if self.state == 1:
-            #     self.state = 0
-            self.clockwise = np.random.choice([-1, 1], 1)
-            turn_angle = np.random.normal(1/6 * np.pi, 1)
-            self.head_angle += turn_angle * self.clockwise
-            self.agent_position[0] += self.step_size * np.cos(self.head_angle)
-            self.agent_position[1] += self.step_size * np.sin(self.head_angle)
-        # dwelling
-        elif action == 1:
-            self.state = 1
-        else:
-            raise NotImplementedError
+        # if action == 0:
+        #     # 不是连续的roaming，重新选择偏转方向
+        #     # if self.state == 1:
+        #     #     self.state = 0
+        #     self.clockwise = np.random.choice([-1, 1], 1)[0]
+        #     turn_angle = np.random.normal(1 / 6 * np.pi, 1)
+        #     self.head_angle += turn_angle * self.clockwise
+        #     self.head_angle %= 2 * np.pi
+        #     self.agent_position[0] += self.step_size * np.cos(self.head_angle)
+        #     self.agent_position[1] += self.step_size * np.sin(self.head_angle)
+        # # dwelling
+        # elif action == 1:
+        #     self.state = 1
+        # else:
+        #     raise NotImplementedError
+        self.head_angle += action[1]
+        self.head_angle %= 2 * np.pi
+        self.agent_position[0] += action[0] * np.cos(self.head_angle)
+        self.agent_position[1] += action[0] * np.sin(self.head_angle)
 
     def render(self):
         # if self.render_mode != 'human':
@@ -118,7 +143,8 @@ class CircularEnv(gym.Env):
         screen_y = int(self.screen_size * (self.agent_position[1] + self.radius) / (2 * self.radius))
 
         # 绘制圆形区域
-        pygame.draw.circle(self.screen, (0, 0, 0), (int(self.screen_size / 2), int(self.screen_size / 2)), int(self.screen_size * self.radius / (2 * self.radius)), 1)
+        pygame.draw.circle(self.screen, (0, 0, 0), (int(self.screen_size / 2), int(self.screen_size / 2)),
+                           int(self.screen_size * self.radius / (2 * self.radius)), 1)
         # 绘制Agent
         pygame.draw.circle(self.screen, (255, 0, 0), (screen_x, screen_y), 5)
         # 绘制轨迹线
@@ -137,21 +163,27 @@ class CircularEnv(gym.Env):
             # color = np.array([0, 0, 0.8, 1])*(1-r) + np.array([0, 0, 0, 1])*r
             color = (color * 255).astype(np.int32)
             start_pos = [int(self.screen_size * (self.trajectory[i][0] + self.radius) / (
-                        2 * self.radius)), int(self.screen_size * (self.trajectory[i][1] + self.radius) / (2 * self.radius))]
-            end_pos = [int(self.screen_size * (self.trajectory[i+1][0] + self.radius) / (
-                        2 * self.radius)), int(self.screen_size * (self.trajectory[i+1][1] + self.radius) / (2 * self.radius))]
+                    2 * self.radius)),
+                         int(self.screen_size * (self.trajectory[i][1] + self.radius) / (2 * self.radius))]
+            end_pos = [int(self.screen_size * (self.trajectory[i + 1][0] + self.radius) / (
+                    2 * self.radius)),
+                       int(self.screen_size * (self.trajectory[i + 1][1] + self.radius) / (2 * self.radius))]
             pygame.draw.line(self.screen, color, start_pos, end_pos, 2)
         # 更新显示
         pygame.display.flip()
 
-        # 处理手动退出事件
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
+        running = True
+        while running:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                # 检测按键，比如按下ESC键退出
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == pygame.K_ESCAPE:
+                        running = False
 
     def close(self):
-        if self.render_mode == 'human':
+        if self.pygame_init:
             pygame.quit()
         sys.exit()
 
@@ -185,7 +217,7 @@ class VecPyTorch(VecEnvWrapper):
 def make_env(env_id, seed, rank, log_dir, allow_early_resets, num_episode_steps):
     def _thunk():
         if env_id == 'CircularEnv':
-            env = CircularEnv(seed=seed+rank, num_episode_steps=num_episode_steps)
+            env = CircularEnv(seed=seed + rank, num_episode_steps=num_episode_steps)
         else:
             raise NotImplementedError
 

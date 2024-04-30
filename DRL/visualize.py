@@ -1,5 +1,7 @@
 import os
 import torch
+import torch.nn as nn
+import copy
 from Environment import make_vec_envs, CircularEnv
 from params import parse_args
 from a2c_ppo_acktr.utils import get_render_func
@@ -14,8 +16,17 @@ def draw_trace(actor_critic, args):
     render_func = get_render_func(env)
 
     obs = env.reset()
-    recurrent_hidden_states = torch.zeros(1, actor_critic.recurrent_hidden_state_size, device=device)
-    masks = torch.zeros(1, 1, device=device)
+    recurrent_hidden_states = torch.randn(1, actor_critic.recurrent_hidden_state_size, device=device)
+    masks = torch.ones(1, 1, device=device)
+
+    eval_hidden_states = torch.randn(1, actor_critic.recurrent_hidden_state_size, device=device)
+    # rnn = copy.deepcopy(actor_critic.base.rnn)
+    rnn = nn.RNN(2, 16)
+    for name, param in rnn.named_parameters():
+        if 'bias' in name:
+            nn.init.constant_(param, 0)
+        elif 'weight' in name:
+            nn.init.orthogonal_(param)
 
     for i in range(1000):
         with torch.no_grad():
@@ -25,6 +36,8 @@ def draw_trace(actor_critic, args):
                 masks,
                 deterministic=True)
 
+            # outputs, eval_hidden_states = rnn(obs, eval_hidden_states)
+
         # Obser reward and next obs
         obs, _, done, infos = env.step(action)
     render_func()
@@ -33,5 +46,5 @@ def draw_trace(actor_critic, args):
 
 if __name__ == '__main__':
     args = parse_args()
-    actor_critic, obs_rms = torch.load(os.path.join(args.save_dir, "2024-04-25 17-10.pt"), map_location="cpu")
+    actor_critic, obs_rms = torch.load(os.path.join(args.save_dir, "2024-04-30 18-37.pt"), map_location="cpu")
     draw_trace(actor_critic, args)

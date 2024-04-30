@@ -50,7 +50,7 @@ def evaluate(actor_critic, obs_rms, env_name, seed, num_processes, eval_log_dir,
 
 
 def smooth(y, radius, mode='two_sided', valid_only=False):
-    '''
+    """
     Smooth signal y, where radius is determines the size of the window
 
     mode='twosided':
@@ -60,7 +60,7 @@ def smooth(y, radius, mode='two_sided', valid_only=False):
 
     valid_only: put nan in entries where the full-sized window is not available
 
-    '''
+    """
     assert mode in ('two_sided', 'causal')
     if len(y) < 2*radius+1:
         return np.ones_like(y) * y.mean()
@@ -105,5 +105,5 @@ def draw_average_reward(file_path):
 
 
 if __name__ == '__main__':
-    file = 'logs/2024-04-23 17-33.npz'
+    file = 'logs/2024-04-26 14-30.npz'
     draw_average_reward(file)
