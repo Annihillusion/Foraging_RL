@@ -101,9 +101,10 @@ def draw_average_reward(file_path):
     x = np.arange(rewards.shape[0])
     plt.plot(x, mean, '-')
     plt.fill_between(x, mean - error, mean + error, alpha=0.2)
+    plt.title(file_path[5:21])
     plt.show()
 
 
 if __name__ == '__main__':
-    file = 'logs/2024-04-26 14-30.npz'
+    file = 'logs/' + '2024-05-10 16-31' + '.npz'
     draw_average_reward(file)

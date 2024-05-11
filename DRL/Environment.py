@@ -7,27 +7,26 @@ import pygame
 import gymnasium as gym
 import matplotlib.pyplot as plt
 from gymnasium import spaces
+from scipy.stats import multivariate_normal
 
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecEnvWrapper
 from stable_baselines3.common.monitor import Monitor
 
 
 class CircularEnv(gym.Env):
-    def __init__(self, radius=5.0, step_size=0.1, render_mode=None, screen_size=1000, seed=202434, num_episode_steps=0):
+    def __init__(self, render_mode=None, screen_size=1000, seed=202434, num_episode_steps=0, radius=6):
         super(CircularEnv, self).__init__()
 
         self.radius = radius
-        self.step_size = step_size
         self.render_mode = render_mode
         self.np_ramdom = np.random.default_rng(seed=seed)
         self.agent_position = np.array([0.0, 0.0], dtype=np.float32)
         # 方向角
-        self.head_angle = 0.0
-        self.clockwise = 1
+        self.head_angle = None
+        self.clockwise = None
         # 定义动作空间，turn & move
-        # self.action_space = spaces.Discrete(2)
-        self.action_space = spaces.Box(np.array([0.0, -np.pi/2]), np.array([0.1, np.pi/2]))
-        self.state = 0
+        self.action_space = spaces.Discrete(2)
+        # self.action_space = spaces.Box(np.array([0.0, -np.pi/2]), np.array([0.1, np.pi/2]))
         # 定义观察空间
         self.observation_space = spaces.Box(np.array([0, -100]), np.array([4, 100]))
         # 定义奖励函数
@@ -47,11 +46,18 @@ class CircularEnv(gym.Env):
                                              1.504611e-01,
                                              4.419983e-01
                                              ])
-        # 记录运动轨迹
-        self.trajectory = []
+        self.energy = 0
+        # 步长与偏转角的分布
+        self.dist_roam = multivariate_normal([16.80526863, 0.11663735], [[3.14002146e+01, -1.08002093e-01], [-1.08002093e-01, 1.18060633e-03]])
+        self.dist_dwell = multivariate_normal([1.79725427e+02, 4.28807042e-02], [[1.49774232e+03, -8.79897963e-02], [-8.79897963e-02, 2.34201939e-04]])
+        # 记录运动轨迹与状态
+        self.pos_trajectory = []
+        self.state_trajectory = []
+        self.energy_trajectory = []
+
         self.pygame_init = False
         self.screen_size = screen_size
-        self.screen = None
+        self.screen, self.screen2 = None, None
         # 用于绘制轨迹时调制颜色
         self.num_episode_steps = num_episode_steps
         self.cur_step = 0
@@ -61,9 +67,10 @@ class CircularEnv(gym.Env):
         # Normalized to [0, 1]
         r = np.linalg.norm(self.agent_position) / self.radius
         concentration = self.concentration_func(r)
-        df = self.concentration_func.deriv(r)
-        # gradient = df(r) * (self.agent_position[0]/r*np.cos(self.head_angle) + self.agent_position[1]/r*np.sin(self.head_angle))
-        gradient = df(r) * np.cos(self.head_angle)
+        df = np.polyder(self.concentration_func)
+        theta = np.arctan2(self.agent_position[1], self.agent_position[0])
+        alpha = np.abs(theta - self.head_angle)
+        gradient = df(r) * np.cos(alpha)
         return np.array([concentration, gradient])
 
     def reset(self, seed=None, *args):
@@ -73,32 +80,42 @@ class CircularEnv(gym.Env):
         y = -np.sin(self.head_angle) * self.radius
         self.agent_position = np.array([x, y], dtype=np.float32)
         # 重置轨迹
-        self.trajectory = []
-        self.trajectory.append(self.agent_position.copy())
+        self.pos_trajectory = []
+        self.state_trajectory = []
+        self.energy_trajectory = []
+        self.pos_trajectory.append(self.agent_position.copy())
+        self.energy = 0
         info = {}
         return self.observation, info
 
     def step(self, action):
-        # if action == 0:
-        #     yaw_angle = self.np_random.uniform(-np.pi / 2, np.pi / 2)
-        #     self.head_angle += yaw_angle
-        #
-        # self.agent_position[0] += self.step_size * np.cos(self.head_angle)
-        # self.agent_position[1] += self.step_size * np.sin(self.head_angle)
         self.move(action)
 
         distance_from_center = np.linalg.norm(self.agent_position)
         # 定义奖励
+        consumption = 1.1 if action == 0 else 0.0
         if distance_from_center > self.radius:
-            reward = -1
+            food = 0
         else:
-            reward = self.concentration_func(distance_from_center / self.radius)
+            food = self.concentration_func(distance_from_center / self.radius)
+        self.energy = self.energy * 0.9 + (food - consumption) * 0.1
+        reward = food + 2 * self.energy
         # 限制Agent在圆形区域内移动
         if distance_from_center > self.radius:
             self.agent_position /= distance_from_center  # 将位置归一化到圆形边界
             self.agent_position *= self.radius
+
+            theta = np.arctan2(self.agent_position[1], self.agent_position[0])
+            beta = np.abs(theta - self.head_angle)
+            if self.head_angle > theta:
+                self.head_angle += np.pi - 2 * beta
+            else:
+                self.head_angle -= np.pi - 2 * beta
+            self.head_angle %= 2 * np.pi
         # 更新轨迹
-        self.trajectory.append(self.agent_position.copy())
+        self.pos_trajectory.append(self.agent_position.copy())
+        self.state_trajectory.append(action)
+        self.energy_trajectory.append(self.energy)
         # 定义是否终止的条件
         terminated, truncated, info = False, False, {}
 
@@ -106,86 +123,91 @@ class CircularEnv(gym.Env):
 
     def move(self, action):
         # roaming
-        # if action == 0:
-        #     # 不是连续的roaming，重新选择偏转方向
-        #     # if self.state == 1:
-        #     #     self.state = 0
-        #     self.clockwise = np.random.choice([-1, 1], 1)[0]
-        #     turn_angle = np.random.normal(1 / 6 * np.pi, 1)
-        #     self.head_angle += turn_angle * self.clockwise
-        #     self.head_angle %= 2 * np.pi
-        #     self.agent_position[0] += self.step_size * np.cos(self.head_angle)
-        #     self.agent_position[1] += self.step_size * np.sin(self.head_angle)
-        # # dwelling
-        # elif action == 1:
-        #     self.state = 1
-        # else:
-        #     raise NotImplementedError
-        self.head_angle += action[1]
+        if action == 0:
+            turn_angle, step_size = self.dist_roam.rvs(size=1)
+        # dwelling
+        elif action == 1:
+            turn_angle, step_size = self.dist_dwell.rvs(size=1)
+            # step_size = 0
+        else:
+            raise NotImplementedError
+
+        turn_angle = turn_angle / 180 * np.pi
+        self.clockwise = np.random.choice([-1, 1], 1)[0]
+        self.head_angle += turn_angle * self.clockwise
         self.head_angle %= 2 * np.pi
-        self.agent_position[0] += action[0] * np.cos(self.head_angle)
-        self.agent_position[1] += action[0] * np.sin(self.head_angle)
+        self.agent_position[0] += step_size * np.cos(self.head_angle)
+        self.agent_position[1] += step_size * np.sin(self.head_angle)
 
     def render(self):
-        # if self.render_mode != 'human':
-        #     return
-        if not self.pygame_init:
-            # 初始化 Pygame
-            pygame.init()
-            # 设置屏幕尺寸
-            self.screen = pygame.display.set_mode((self.screen_size, self.screen_size))
-            self.pygame_init = True
-        # 渲染环境
-        self.screen.fill((255, 255, 255))
-
-        # 将Agent的位置映射到屏幕坐标
-        screen_x = int(self.screen_size * (self.agent_position[0] + self.radius) / (2 * self.radius))
-        screen_y = int(self.screen_size * (self.agent_position[1] + self.radius) / (2 * self.radius))
-
-        # 绘制圆形区域
-        pygame.draw.circle(self.screen, (0, 0, 0), (int(self.screen_size / 2), int(self.screen_size / 2)),
-                           int(self.screen_size * self.radius / (2 * self.radius)), 1)
-        # 绘制Agent
-        pygame.draw.circle(self.screen, (255, 0, 0), (screen_x, screen_y), 5)
-        # 绘制轨迹线
-        # if len(self.trajectory) > 1:
-        #     # color: int[r, g, b, alpha], 0~255
-        #     color = np.array(plt.cm.viridis(self.cur_step / self.num_episode_steps))
+        return self.pos_trajectory, self.state_trajectory, self.energy_trajectory
+        # # if self.render_mode != 'human':
+        # #     return
+        # if not self.pygame_init:
+        #     # 初始化 Pygame
+        #     pygame.init()
+        #     # 设置图形间隔
+        #     gap = 50
+        #     # 设置屏幕尺寸
+        #     self.screen = pygame.display.set_mode((self.screen_size * 2 + gap, self.screen_size))
+        #     self.pygame_init = True
+        # # 渲染环境
+        # self.screen.fill((255, 255, 255))
+        #
+        # # 将Agent的位置映射到屏幕坐标
+        # # screen_x = int(self.screen_size * (self.agent_position[0] + self.radius) / (2 * self.radius))
+        # # screen_y = int(self.screen_size * (self.agent_position[1] + self.radius) / (2 * self.radius))
+        #
+        # # 绘制圆形区域
+        # pygame.draw.circle(self.screen, (0, 0, 0), (int(self.screen_size / 2), int(self.screen_size / 2)),
+        #                    int(self.screen_size * self.radius / (2 * self.radius)), 1)
+        # pygame.draw.circle(self.screen, (0, 0, 0), (int(self.screen_size / 2 + self.screen_size + gap), int(self.screen_size / 2)),
+        #                    int(self.screen_size * self.radius / (2 * self.radius)), 1)
+        # # 绘制Agent
+        # # pygame.draw.circle(self.screen, (255, 0, 0), (screen_x, screen_y), 5)
+        # # pygame.draw.circle(self.screen, (255, 0, 0), (screen_x + self.screen_size + gap, screen_y), 5)
+        #
+        # # 绘制轨迹线
+        # # if len(self.trajectory) > 1:
+        # #     # color: int[r, g, b, alpha], 0~255
+        # #     color = np.array(plt.cm.viridis(self.cur_step / self.num_episode_steps))
+        # #     color = (color * 255).astype(np.int32)
+        # #     self.cur_step += 1
+        # #     pygame.draw.lines(self.screen, color, False, [(int(self.screen_size * (x + self.radius) / (
+        # #                 2 * self.radius)), int(self.screen_size * (y + self.radius) / (2 * self.radius))) for x, y in
+        # #                                                       self.trajectory], 2)
+        # length = len(self.pos_trajectory)
+        # for i in range(length - 1):
+        #     color = np.array(plt.cm.viridis(i / length))
+        #     # r = i / length
+        #     # color = np.array([0, 0, 0.8, 1])*(1-r) + np.array([0, 0, 0, 1])*r
         #     color = (color * 255).astype(np.int32)
-        #     self.cur_step += 1
-        #     pygame.draw.lines(self.screen, color, False, [(int(self.screen_size * (x + self.radius) / (
-        #                 2 * self.radius)), int(self.screen_size * (y + self.radius) / (2 * self.radius))) for x, y in
-        #                                                       self.trajectory], 2)
-        length = len(self.trajectory)
-        for i in range(length - 1):
-            color = np.array(plt.cm.viridis(i / length))
-            r = i / length
-            # color = np.array([0, 0, 0.8, 1])*(1-r) + np.array([0, 0, 0, 1])*r
-            color = (color * 255).astype(np.int32)
-            start_pos = [int(self.screen_size * (self.trajectory[i][0] + self.radius) / (
-                    2 * self.radius)),
-                         int(self.screen_size * (self.trajectory[i][1] + self.radius) / (2 * self.radius))]
-            end_pos = [int(self.screen_size * (self.trajectory[i + 1][0] + self.radius) / (
-                    2 * self.radius)),
-                       int(self.screen_size * (self.trajectory[i + 1][1] + self.radius) / (2 * self.radius))]
-            pygame.draw.line(self.screen, color, start_pos, end_pos, 2)
-        # 更新显示
-        pygame.display.flip()
-
-        running = True
-        while running:
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    running = False
-                # 检测按键，比如按下ESC键退出
-                elif event.type == pygame.KEYDOWN:
-                    if event.key == pygame.K_ESCAPE:
-                        running = False
+        #     start_pos = [int(self.screen_size * (self.pos_trajectory[i][0] + self.radius) / (2 * self.radius)),
+        #                  int(self.screen_size * (self.pos_trajectory[i][1] + self.radius) / (2 * self.radius))]
+        #     end_pos = [int(self.screen_size * (self.pos_trajectory[i + 1][0] + self.radius) / (2 * self.radius)),
+        #                int(self.screen_size * (self.pos_trajectory[i + 1][1] + self.radius) / (2 * self.radius))]
+        #     pygame.draw.line(self.screen, color, start_pos, end_pos, 2)
+        #     start_pos[0] += self.screen_size + gap
+        #     end_pos[0] += self.screen_size + gap
+        #     pygame.draw.line(self.screen, (0, 47, 167, 255) if self.state_trajectory[i] else (242, 5, 5, 255), start_pos, end_pos, 2)
+        #
+        # # 更新显示
+        # pygame.display.flip()
+        #
+        # running = True
+        # while running:
+        #     for event in pygame.event.get():
+        #         if event.type == pygame.QUIT:
+        #             running = False
+        #         # 检测按键，比如按下ESC键退出
+        #         elif event.type == pygame.KEYDOWN:
+        #             if event.key == pygame.K_ESCAPE:
+        #                 running = False
+        # return self.state_trajectory
 
     def close(self):
         if self.pygame_init:
             pygame.quit()
-        sys.exit()
 
 
 class VecPyTorch(VecEnvWrapper):
@@ -214,10 +236,10 @@ class VecPyTorch(VecEnvWrapper):
         return obs, reward, done, info
 
 
-def make_env(env_id, seed, rank, log_dir, allow_early_resets, num_episode_steps):
+def make_env(env_id, seed, rank, log_dir, allow_early_resets, num_episode_steps, radius):
     def _thunk():
         if env_id == 'CircularEnv':
-            env = CircularEnv(seed=seed + rank, num_episode_steps=num_episode_steps)
+            env = CircularEnv(seed=seed + rank, num_episode_steps=num_episode_steps, radius=radius)
         else:
             raise NotImplementedError
 
@@ -237,9 +259,10 @@ def make_vec_envs(env_name,
                   log_dir,
                   device,
                   allow_early_resets,
-                  num_episode_steps):
+                  num_episode_steps,
+                  radius):
     envs = [
-        make_env(env_name, seed, i, log_dir, allow_early_resets, num_episode_steps)
+        make_env(env_name, seed, i, log_dir, allow_early_resets, num_episode_steps, radius)
         for i in range(num_processes)
     ]
 
@@ -256,16 +279,3 @@ def make_vec_envs(env_name,
 
     envs = VecPyTorch(envs, device)
     return envs
-
-
-if __name__ == '__main__':
-    # 创建圆形环境
-    radius = 5.0
-    env = CircularEnv(radius, step_size=0.1, render_mode='human')
-
-    for _ in range(2000):
-        action = env.action_space.sample()  # 随机选择一个动作
-        observation, reward, done, _, _ = env.step(action)
-        env.render()
-
-    env.close()

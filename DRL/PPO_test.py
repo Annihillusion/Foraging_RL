@@ -1,32 +1,54 @@
-import numpy as np
-from Environment import CircularEnv
-from stable_baselines3.common.env_checker import check_env
-from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.evaluation import evaluate_policy
-from sb3_contrib import RecurrentPPO
+import pygame
+import sys
 
-num_envs = 2
+# 初始化Pygame
+pygame.init()
 
-# Parallel environments
-# check_env(CircularEnv())
-env_config = {'render_mode': None}
-env = make_vec_env(CircularEnv, n_envs=num_envs, env_kwargs=env_config)
+# 获取显示器的尺寸信息
+info = pygame.display.Info()
+width, height = info.current_w, info.current_h
 
-model = RecurrentPPO("MlpLstmPolicy", env, verbose=1)
-model.learn(total_timesteps=5000)
-mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=20, warn=False)
+# 设置窗口尺寸和位置
+win_width = int(width / 2)
+win_height = height
+win_pos_x_1 = 0
+win_pos_y = 0
 
-# model.save("ppo_cartpole")
+# 创建第一个窗口
+screen1 = pygame.display.set_mode((win_width, win_height), pygame.RESIZABLE)
+screen1.fill((255, 0, 0))  # 填充红色
+pygame.display.set_caption("Window 1")
 
-obs = env.reset()
-# cell and hidden state of the LSTM
-lstm_states = None
+# 设置第二个窗口的位置，使其与第一个窗口并列
+win_pos_x_2 = win_width
+screen2 = pygame.display.set_mode((win_width, win_height), pygame.RESIZABLE)
+screen2.fill((0, 255, 0))  # 填充绿色
+pygame.display.set_caption("Window 2")
 
-# Episode start signals are used to reset the lstm states
-episode_starts = np.ones((num_envs,), dtype=bool)
-for _ in range(100):
-    action, lstm_states = model.predict(obs, state=lstm_states, episode_start=episode_starts, deterministic=True)
-    obs, rewards, dones, info = env.step(action)
-    episode_starts = dones
+# 设置图标（可选）
+try:
+    pygame.display.set_icon(pygame.image.load('game_icon.png'))
+except:
+    pass
 
-env.close()
+# 游戏主循环
+running = True
+while running:
+    for try_again in range(2):
+        all_events = pygame.event.get()
+        for event in all_events:
+            if event.type == pygame.QUIT:
+                running = False
+
+    # 绘制内容到第一个窗口
+    pygame.display.flip()
+
+    # 绘制内容到第二个窗口
+    pygame.display.flip()
+
+    # 控制循环更新速度
+    pygame.time.Clock().tick(30)
+
+# 退出游戏
+pygame.quit()
+sys.exit()
