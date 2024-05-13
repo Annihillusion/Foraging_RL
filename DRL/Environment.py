@@ -28,7 +28,7 @@ class CircularEnv(gym.Env):
         self.action_space = spaces.Discrete(2)
         # self.action_space = spaces.Box(np.array([0.0, -np.pi/2]), np.array([0.1, np.pi/2]))
         # 定义观察空间
-        self.observation_space = spaces.Box(np.array([0, -100]), np.array([4, 100]))
+        self.observation_space = spaces.Box(np.array([0, -100, 0]), np.array([4, 100, 1]))
         # 定义奖励函数
         self.concentration_func = np.poly1d([4.642225e+05,
                                              -2.852648e+06,
@@ -86,7 +86,7 @@ class CircularEnv(gym.Env):
         self.pos_trajectory.append(self.agent_position.copy())
         self.energy = 0
         info = {}
-        return self.observation, info
+        return np.append(self.observation, 0), info
 
     def step(self, action):
         self.move(action)
@@ -119,7 +119,7 @@ class CircularEnv(gym.Env):
         # 定义是否终止的条件
         terminated, truncated, info = False, False, {}
 
-        return self.observation, reward, terminated, truncated, info
+        return np.append(self.observation, action), reward, terminated, truncated, info
 
     def move(self, action):
         # roaming

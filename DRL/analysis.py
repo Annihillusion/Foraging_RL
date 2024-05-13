@@ -105,6 +105,33 @@ def draw_average_reward(file_path):
     plt.show()
 
 
+def roam_time(file_path, baseline=None):
+    npzfile = np.load(file_path)
+    action, reward = npzfile['action'], npzfile['reward']
+
+    action = action[:,:,0]
+    num_episodes = action.shape[0]
+    roam_percent = 1 - np.sum(action, axis=1) / action.shape[1]
+
+    num_window = 8
+    state_trajectory = action.reshape(-1)
+    roam_rate = np.empty(num_window)
+    len_window = len(state_trajectory) // num_window
+    for i in range(num_window):
+        roam_rate[i] = (len_window - sum(state_trajectory[i * len_window: (i + 1) * len_window])) / len_window
+
+    fig, ax = plt.subplots()
+    x = np.arange(num_episodes) + 1
+    ax.errorbar(np.arange(8), roam_rate, yerr=0.02, marker='o')
+    ax.set_ylim(0, 0.5)
+    plt.show()
+
+
+def roam_pos(file_path):
+    pass
+
+
 if __name__ == '__main__':
-    file = 'logs/' + '2024-05-10 16-31' + '.npz'
-    draw_average_reward(file)
+    file = 'logs/' + '2024-05-13 17-35 6to12' + '.npz'
+    # draw_average_reward(file)
+    roam_time(file)

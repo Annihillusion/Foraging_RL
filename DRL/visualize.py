@@ -96,6 +96,8 @@ def test_and_plot(actor_critic, args, record_name, episode_id, save_mode=True):
         draw_trace(pos_trajectory, state_trajectory, args.radius, save_mode=save_mode)
         plt.show()
 
+    return pos_trajectory, state_trajectory, energy_trajectory
+
 
 if __name__ == '__main__':
     args = parse_args()

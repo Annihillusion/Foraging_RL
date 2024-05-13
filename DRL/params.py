@@ -15,7 +15,7 @@ def parse_args():
                         help='use generalized advantage estimation')
     parser.add_argument('--gae-lambda', type=float, default=0.99,
                         help='gae lambda parameter (default: 0.99)')
-    parser.add_argument('--entropy-coef', type=float, default=0.1,
+    parser.add_argument('--entropy-coef', type=float, default=0.2,
                         help='entropy term coefficient (default: 0.05)')
     parser.add_argument('--value-loss-coef', type=float, default=0.1,
                         help='value loss coefficient (default: 0.5)')
@@ -47,9 +47,9 @@ def parse_args():
                         help='directory to save agent logs (default: trained_models)')
     parser.add_argument('--num-update-steps', type=int, default=32,
                         help='number of forward steps in A2C (default: 5)')
-    parser.add_argument('--num-episode-steps', type=int, default=14400,
+    parser.add_argument('--num-episode-steps', type=int, default=72000,
                         help='number of environment steps to train in single epoch')
-    parser.add_argument('--num-episodes', type=int, default=40)
+    parser.add_argument('--num-episodes', type=int, default=1)
     parser.add_argument('--hidden-size', type=int, default=4)
     parser.add_argument("--render", type=str, default=None)
     parser.add_argument("--algo", type=str, default='ppo')
