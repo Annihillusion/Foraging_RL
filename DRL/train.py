@@ -16,7 +16,9 @@ def train_one_episode(envs, agent, rollouts, args, episode_index):
     num_updates = int(args.num_episode_steps) // args.num_update_steps
     loss_record = np.empty([num_updates, 3])
 
+    pos_collector = [np.zeros([args.num_processes, 2])]
     action_collector = []
+    energy_collector = [np.zeros(args.num_processes)]
     reward_collector = []
 
     for j in tqdm(range(num_updates), desc=f"Episode {episode_index + 1}/{args.num_episodes}"):
@@ -36,7 +38,9 @@ def train_one_episode(envs, agent, rollouts, args, episode_index):
             # Obser reward and next obs
             obs, reward, done, infos = envs.step(action)
 
+            pos_collector.append([info['position'] for info in infos])
             action_collector.append(action.view(-1).cpu())
+            energy_collector.append([info['energy'] for info in infos])
             reward_collector.append(reward.view(-1).cpu())
 
             for info in infos:
@@ -63,9 +67,11 @@ def train_one_episode(envs, agent, rollouts, args, episode_index):
         loss_record[j] = agent.update(rollouts)
         rollouts.after_update()
 
+    pos_collector = np.array(pos_collector)
     action_collector = np.array(action_collector)
+    energy_collector = np.array(energy_collector)
     reward_collector = np.array(reward_collector)
-    return action_collector, reward_collector, loss_record
+    return pos_collector, action_collector, energy_collector, reward_collector, loss_record
 
 
         # save for every interval-th episode or for the last epoch

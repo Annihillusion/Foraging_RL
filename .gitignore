@@ -1,6 +1,10 @@
+data_utils/data.csv
 **/__pycache__/
 **/.DS_Store
 .idea
 data/
 DRL/logs/
-
+DRL/train_plot/
+DRL/trained_models/
+DRL/records/
+DRL/records_5_18/

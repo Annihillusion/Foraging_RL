@@ -117,7 +117,7 @@ class CircularEnv(gym.Env):
         self.state_trajectory.append(action)
         self.energy_trajectory.append(self.energy)
         # 定义是否终止的条件
-        terminated, truncated, info = False, False, {}
+        terminated, truncated, info = False, False, {'position': self.agent_position, 'energy': self.energy}
 
         return np.append(self.observation, action), reward, terminated, truncated, info
 
