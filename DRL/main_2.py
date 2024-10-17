@@ -1,7 +1,7 @@
 import os
 import numpy as np
 import torch
-import copy
+from datetime import datetime
 
 from Environment import make_vec_envs
 from params import parse_args
@@ -70,20 +70,13 @@ def main(args):
     np.savez(os.path.join('exp_records', args.exp_name, 'small_'+file_name), position=pos, action=action,
              action_prob=action_prob, actor_feature=actor_feature, rnn_x=rnn_x, energy=energy, reward=reward)
 
-    agent2 = copy.deepcopy(agent)
-    rollouts2 = copy.deepcopy(rollouts)
-
     args.num_episode_steps = 20000
     args.lr = 4e-4
-    pos, action, action_prob, actor_feature, rnn_x, energy, reward, _ \
-        = train_one_episode(envs, agent, rollouts, args)
-    np.savez(os.path.join('exp_records', args.exp_name, 'small_small_'+file_name), position=pos, action=action,
-             action_prob=action_prob, actor_feature=actor_feature, rnn_x=rnn_x, energy=energy, reward=reward)
-
     args.radius = 12
     pos, action, action_prob, actor_feature, rnn_x, energy, reward, _ \
-        = train_one_episode(envs, agent2, rollouts2, args)
-    np.savez(os.path.join('exp_records', args.exp_name, 'small_large_' + file_name), position=pos, action=action,
+        = train_one_episode(envs, agent, rollouts, args)
+
+    np.savez(os.path.join('exp_records', args.exp_name, 'small_large_'+file_name), position=pos, action=action,
              action_prob=action_prob, actor_feature=actor_feature, rnn_x=rnn_x, energy=energy, reward=reward)
 
 if __name__ == '__main__':

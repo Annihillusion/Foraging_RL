@@ -24,9 +24,10 @@ class CircularEnv(gym.Env):
         # 方向角
         self.head_angle = None
         self.clockwise = None
+        self.action = None
         # 定义动作空间，turn & move
         self.action_space = spaces.Discrete(2)
-        # self.action_space = spaces.Box(np.array([0.0, -np.pi/2]), np.array([0.1, np.pi/2]))
+        # self.action_space = spaces.Box(-np.Inf, np.Inf)
         # 定义观察空间
         self.observation_space = spaces.Box(np.array([0, -100, 0]), np.array([4, 100, 1]))
         # 定义奖励函数
@@ -76,30 +77,38 @@ class CircularEnv(gym.Env):
     def reset(self, seed=None, *args):
         # 将Agent放在菌斑边缘
         self.head_angle = self.np_random.uniform(0, 2 * np.pi)
+        self.action = 0
         x = -np.cos(self.head_angle) * self.radius
         y = -np.sin(self.head_angle) * self.radius
         self.agent_position = np.array([x, y], dtype=np.float32)
         # 重置轨迹
-        self.pos_trajectory = []
+        # self.pos_trajectory = []
         self.state_trajectory = []
         self.energy_trajectory = []
-        self.pos_trajectory.append(self.agent_position.copy())
+        # self.pos_trajectory.append(self.agent_position.copy())
         self.energy = 0
-        info = {}
+        info = {'pos': self.agent_position}
         return np.append(self.observation, 0), info
+        # return self.observation, info
 
     def step(self, action):
+        # 0不变，1变
+        # if action == 1:
+        #     self.action = 1 - self.action
+        # action = self.action
         self.move(action)
 
         distance_from_center = np.linalg.norm(self.agent_position)
         # 定义奖励
-        consumption = 1.1 if action == 0 else 0.0
+        consumption = 1 if action == 0 else 0
         if distance_from_center > self.radius:
             food = 0
         else:
             food = self.concentration_func(distance_from_center / self.radius)
         self.energy = self.energy * 0.9 + (food - consumption) * 0.1
         reward = food + 2 * self.energy
+        # reward = food
+
         # 限制Agent在圆形区域内移动
         if distance_from_center > self.radius:
             self.agent_position /= distance_from_center  # 将位置归一化到圆形边界
@@ -113,13 +122,13 @@ class CircularEnv(gym.Env):
                 self.head_angle -= np.pi - 2 * beta
             self.head_angle %= 2 * np.pi
         # 更新轨迹
-        self.pos_trajectory.append(self.agent_position.copy())
+        # self.pos_trajectory.append(self.agent_position.copy())
         self.state_trajectory.append(action)
         self.energy_trajectory.append(self.energy)
         # 定义是否终止的条件
         terminated, truncated, info = False, False, {'position': self.agent_position, 'energy': self.energy}
-
         return np.append(self.observation, action), reward, terminated, truncated, info
+        # return self.observation, reward, terminated, truncated, info
 
     def move(self, action):
         # roaming
@@ -128,7 +137,8 @@ class CircularEnv(gym.Env):
         # dwelling
         elif action == 1:
             turn_angle, step_size = self.dist_dwell.rvs(size=1)
-            # step_size = 0
+            #step_size = 0
+            #turn_angle = 0
         else:
             raise NotImplementedError
 

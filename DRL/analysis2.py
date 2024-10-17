@@ -112,67 +112,6 @@ def draw_average_reward(file_path):
     plt.show()
 
 
-def judge_area(position, radius, num_area):
-    dist_from_edge = radius - np.linalg.norm(position)
-    ratio = dist_from_edge / radius
-    return int(ratio // (1 / num_area))
-
-
-def roam_time_pos(file_path, radius, num_period=3, num_area=3, baseline=None):
-    """
-    暂时用多个envs的平均替代多个agent的平均, 无baseline
-    """
-    npzfile = np.load(file_path)
-    pos, action = npzfile['position'][1:], npzfile['action']
-    num_steps = action.shape[0]
-    num_agents = action.shape[1]
-    action = action.transpose([1, 0])
-    pos = pos.transpose([1, 0, 2])
-
-    mean = np.empty([num_period, num_area])
-    err = np.empty([num_period, num_area])
-
-    len_bin = num_steps // num_period
-
-    for i in range(num_period):
-        shift = i * len_bin
-        roam_rate = np.empty([num_area, num_agents])
-        for j in range(num_agents):
-            roam_cnt, total_cnt = np.zeros(num_area), np.zeros(num_area)
-            for k in range(len_bin):
-                area = judge_area(pos[j, shift + k], radius, num_area)
-                roam_cnt[area] += 1 - action[j, shift + k]
-                total_cnt[area] += 1
-            tmp = roam_cnt / total_cnt
-            roam_rate[:, j] = tmp
-        time_mean = np.mean(roam_rate, axis=1)
-        time_err = np.std(roam_rate, axis=1) / np.sqrt(num_agents)
-        mean[i, :] = time_mean
-        err[i, :] = time_err
-
-    mean, err = np.nan_to_num(mean), np.nan_to_num(err)
-    mean, err = mean.transpose([1, 0]), err.transpose([1, 0])
-
-    fig, ax = plt.subplots(figsize=(8, 6))
-    bar_width = 0.2
-    x = np.arange(num_period)
-    time_labels = [f'Period {i + 1}' for i in range(num_period)]
-    location_labels = ['Edge', 'Middle', 'Center']
-    for i in range(num_area):
-        x_0 = x - bar_width * num_area / 2
-        x_plot = x_0 + i * bar_width + bar_width / 2
-        plt.bar(x_plot, mean[i], width=bar_width, label=location_labels[i], color=plt.cm.viridis(i / num_area))
-        # plt.errorbar(x_plot, mean[i], yerr=err[i], color='b')
-
-    ax.set_ylim([0, 0.5])
-    # plt.xlabel('Time')
-    plt.ylabel('Proportion %')
-    plt.xticks(x, time_labels)
-    plt.title(file_path[5:21])
-    plt.legend()
-    plt.show()
-
-
 def roam_time_baseline(patch_size: str, time_bin=8, record_dir='records_5_18'):
     if patch_size == 'small':
         prefix = 'small_'

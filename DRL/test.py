@@ -1,7 +1,7 @@
-import argparse
+import os
 
+file_list = os.listdir("exp_records/new_reward")
+for file_name in file_list:
+    if file_name.startswith("nr"):
+        os.rename("exp_records/new_reward/"+file_name, "exp_records/new_reward/"+file_name[3:])
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--number", type=str)
-args = parser.parse_args()
-print(f'{args.number} got')

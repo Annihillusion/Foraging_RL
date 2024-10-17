@@ -4,7 +4,10 @@ data_utils/data.csv
 .idea
 data/
 DRL/logs/
-DRL/train_plot/
-DRL/trained_models/
-DRL/records/
-DRL/records_5_18/
+DRL/train_plot
+DRL/exp_models
+DRL/exp_records
+DRL/train_plot
+DRL/exp_plots
+DRL/exp_traces
+DRL/trained_models

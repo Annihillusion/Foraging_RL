@@ -7,7 +7,7 @@ from tqdm import tqdm
 from a2c_ppo_acktr import algo, utils
 
 
-def train_one_episode(envs, agent, rollouts, args, episode_index):
+def train_one_episode(envs, agent, rollouts, args, episode_index=0):
     obs = envs.reset()
     rollouts.obs[0].copy_(obs)
 
@@ -16,9 +16,12 @@ def train_one_episode(envs, agent, rollouts, args, episode_index):
     num_updates = int(args.num_episode_steps) // args.num_update_steps
     loss_record = np.empty([num_updates, 3])
 
-    pos_collector = [np.zeros([args.num_processes, 2])]
+    pos_collector = []
     action_collector = []
-    energy_collector = [np.zeros(args.num_processes)]
+    action_prob_collector = []
+    rnn_x_collector = []
+    actor_feature_collector = []
+    energy_collector = []
     reward_collector = []
 
     for j in tqdm(range(num_updates), desc=f"Episode {episode_index + 1}/{args.num_episodes}"):
@@ -31,15 +34,17 @@ def train_one_episode(envs, agent, rollouts, args, episode_index):
         for step in range(args.num_update_steps):
             # Sample actions
             with torch.no_grad():
-                value, action, action_log_prob, recurrent_hidden_states = agent.actor_critic.act(
-                    rollouts.obs[step], rollouts.recurrent_hidden_states[step],
-                    rollouts.masks[step])
+                value, action, action_log_prob, actor_features, rnn_x, recurrent_hidden_states = agent.actor_critic.act(
+                    rollouts.obs[step], rollouts.recurrent_hidden_states[step], rollouts.masks[step])
 
             # Obser reward and next obs
             obs, reward, done, infos = envs.step(action)
 
             pos_collector.append([info['position'] for info in infos])
             action_collector.append(action.view(-1).cpu())
+            action_prob_collector.append(torch.exp(action_log_prob).view(-1).cpu())
+            rnn_x_collector.append(rnn_x.cpu())
+            actor_feature_collector.append(actor_features.cpu())
             energy_collector.append([info['energy'] for info in infos])
             reward_collector.append(reward.view(-1).cpu())
 
@@ -69,9 +74,13 @@ def train_one_episode(envs, agent, rollouts, args, episode_index):
 
     pos_collector = np.array(pos_collector)
     action_collector = np.array(action_collector)
+    action_prob_collector = np.array(action_prob_collector)
+    actor_feature_collector = np.array(actor_feature_collector)
+    rnn_x_collector = np.array(rnn_x_collector)
     energy_collector = np.array(energy_collector)
     reward_collector = np.array(reward_collector)
-    return pos_collector, action_collector, energy_collector, reward_collector, loss_record
+    return (pos_collector, action_collector, action_prob_collector, actor_feature_collector, rnn_x_collector,
+            energy_collector, reward_collector, loss_record)
 
 
         # save for every interval-th episode or for the last epoch

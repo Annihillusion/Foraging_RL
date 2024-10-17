@@ -3,6 +3,7 @@ import math
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.distributions.utils import logits_to_probs, probs_to_logits
 
 from a2c_ppo_acktr.utils import AddBias, init
 
@@ -70,7 +71,9 @@ class Categorical(nn.Module):
 
     def forward(self, x):
         x = self.linear(x)
+        # x = torch.cat([F.sigmoid(x), 1 - F.sigmoid(x)], 1)
         return FixedCategorical(logits=x)
+
 
 
 class DiagGaussian(nn.Module):

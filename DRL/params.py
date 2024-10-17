@@ -19,7 +19,7 @@ def parse_args():
                         help='entropy term coefficient (default: 0.05)')
     parser.add_argument('--value-loss-coef', type=float, default=0.1,
                         help='value loss coefficient (default: 0.5)')
-    parser.add_argument('--max-grad-norm', type=float, default=0.5,
+    parser.add_argument('--max-grad-norm', type=float, default=0.05,
                         help='max norm of gradients (default: 0.5)')
     parser.add_argument('--seed', type=int, default=202434,
                         help='random seed (default: 202434)')
@@ -41,13 +41,13 @@ def parse_args():
                         help='use a recurrent policy')
     parser.add_argument('--env-name', default='CircularEnv',
                         help='environment to train on (default: CircularEnv)')
-    parser.add_argument('--log-dir', default='records_5_18',
+    parser.add_argument('--log-dir', default='logs',
                         help='directory to save agent logs (default: logs)')
     parser.add_argument('--save-dir', default='./trained_models',
                         help='directory to save agent logs (default: trained_models)')
     parser.add_argument('--num-update-steps', type=int, default=32,
                         help='number of forward steps in A2C (default: 5)')
-    parser.add_argument('--num-episode-steps', type=int, default=3600,
+    parser.add_argument('--num-episode-steps', type=int, default=360,
                         help='number of environment steps to train in single epoch')
     parser.add_argument('--num-episodes', type=int, default=1)
     parser.add_argument('--hidden-size', type=int, default=4)
@@ -57,6 +57,8 @@ def parse_args():
     parser.add_argument("--file-name", type=str)
     parser.add_argument("--model-name", type=str)
     parser.add_argument("--mode", type=str, default='train')
+    # 实验方案的命名，不同实验方案的模型参数、训练记录等均会保存在各自的目录下
+    parser.add_argument("--exp-name", type=str)
 
     args = parser.parse_args()
     return args

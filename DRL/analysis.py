@@ -2,9 +2,19 @@ import numpy as np
 import torch
 import matplotlib.pyplot as plt
 import os
+import re
 
 from a2c_ppo_acktr import utils
 from a2c_ppo_acktr.envs import make_vec_envs
+
+
+def judge_area(position, radius, num_area):
+    # dist_from_edge = radius - np.linalg.norm(position)
+    ratio = np.linalg.norm(position) / radius
+    for i in range(num_area):
+        if ratio > np.sqrt(i) / np.sqrt(num_area) and ratio <= np.sqrt(i+1) / np.sqrt(num_area):
+            return num_area - i - 1
+    # return int(ratio // (1 / num_area))
 
 
 def evaluate(actor_critic, obs_rms, env_name, seed, num_processes, eval_log_dir, device):
@@ -108,68 +118,7 @@ def draw_average_reward(file_path):
     plt.show()
 
 
-def judge_area(position, radius, num_area):
-    dist_from_edge = radius - np.linalg.norm(position)
-    ratio = dist_from_edge / radius
-    return int(ratio // (1 / num_area))
-
-
-def roam_time_pos(file_path, radius, num_period=3, num_area=3, baseline=None):
-    """
-    暂时用多个envs的平均替代多个agent的平均, 无baseline
-    """
-    npzfile = np.load(file_path)
-    pos, action = npzfile['position'][1:], npzfile['action']
-    num_steps = action.shape[0]
-    num_agents = action.shape[1]
-    action = action.transpose([1, 0])
-    pos = pos.transpose([1, 0, 2])
-
-    mean = np.empty([num_period, num_area])
-    err = np.empty([num_period, num_area])
-
-    len_bin = num_steps // num_period
-
-    for i in range(num_period):
-        shift = i * len_bin
-        roam_rate = np.empty([num_area, num_agents])
-        for j in range(num_agents):
-            roam_cnt, total_cnt = np.zeros(num_area), np.zeros(num_area)
-            for k in range(len_bin):
-                area = judge_area(pos[j, shift + k], radius, num_area)
-                roam_cnt[area] += 1 - action[j, shift + k]
-                total_cnt[area] += 1
-            tmp = roam_cnt / total_cnt
-            roam_rate[:, j] = tmp
-        time_mean = np.mean(roam_rate, axis=1)
-        time_err = np.std(roam_rate, axis=1) / np.sqrt(num_agents)
-        mean[i, :] = time_mean
-        err[i, :] = time_err
-
-    mean, err = np.nan_to_num(mean), np.nan_to_num(err)
-    mean, err = mean.transpose([1, 0]), err.transpose([1, 0])
-
-    fig, ax = plt.subplots(figsize=(8, 6))
-    bar_width = 0.2
-    x = np.arange(num_period)
-    time_labels = [f'Period {i + 1}' for i in range(num_period)]
-    location_labels = ['Edge', 'Middle', 'Center']
-    for i in range(num_area):
-        x_0 = x - bar_width * num_area / 2
-        x_plot = x_0 + i * bar_width + bar_width / 2
-        plt.bar(x_plot, mean[i], width=bar_width, label=location_labels[i], color=plt.cm.viridis(i / num_area))
-        # plt.errorbar(x_plot, mean[i], yerr=err[i], color='b')
-
-    ax.set_ylim([0, 0.5])
-    # plt.xlabel('Time')
-    plt.ylabel('Proportion %')
-    plt.xticks(x, time_labels)
-    plt.title(file_path[5:21])
-    plt.legend()
-    plt.show()
-
-
-def roam_time_baseline(patch_size: str, time_bin=8, record_dir='records_5_18/'):
+def roam_time_baseline(patch_size: str, records_dir: str, repeat_num: int, time_bin=1):
     if patch_size == 'small':
         prefix = 'small_'
     elif patch_size == 'large':
@@ -177,10 +126,10 @@ def roam_time_baseline(patch_size: str, time_bin=8, record_dir='records_5_18/'):
     else:
         raise ValueError(f'Choose from small and large')
 
-    file_list = [prefix + str(i+1) + '.npz' for i in range(50)]
+    file_list = [prefix + str(i+1) + '.npz' for i in range(repeat_num)]
     collector = []
     for file in file_list:
-        file_path = os.path.join(record_dir, file)
+        file_path = os.path.join(records_dir, file)
         npzfile = np.load(file_path)
         action = npzfile['action'][80000:, :]
         len_bin = action.shape[0] // time_bin
@@ -193,7 +142,7 @@ def roam_time_baseline(patch_size: str, time_bin=8, record_dir='records_5_18/'):
 
     roam_data = np.array(collector)
     mean = np.mean(roam_data, axis=0)
-    err = np.std(roam_data, axis=0) / np.sqrt(50*4)
+    err = np.std(roam_data, axis=0) / np.sqrt(repeat_num * 4)
     return mean*100, err*100
 
 
@@ -212,16 +161,17 @@ def small_large_contrast():
     plt.show()
 
 
-def roam_time_collector(prefix: str, time_bin=4, record_dir='records_5_18'):
-    file_list = [prefix + '_' + str(i + 1) + '.npz' for i in range(50)]
+def roam_time_transfer(prefix: str, records_dir: str, repeat_num: int, time_bin=4):
+    file_list = [prefix + '_' + str(i + 1) + '.npz' for i in range(repeat_num)]
     collector = []
     for file in file_list:
-        file_path = os.path.join(record_dir, file)
+        file_path = os.path.join(records_dir, file)
         npzfile = np.load(file_path)
         action = npzfile['action']
         len_bin = action.shape[0] // time_bin
         roam_ratio = np.empty(time_bin)
 
+        # 若干并行线程的平均值作为该次实验的数据，后续有待改进
         for i in range(time_bin):
             tmp = 1 - np.mean(action[i * len_bin: (i + 1) * len_bin, :], axis=0)
             roam_ratio[i] = np.mean(tmp)
@@ -229,45 +179,63 @@ def roam_time_collector(prefix: str, time_bin=4, record_dir='records_5_18'):
 
     roam_data = np.array(collector)
     mean = np.mean(roam_data, axis=0)
-    err = np.std(roam_data, axis=0) / np.sqrt(50)
+    err = np.std(roam_data, axis=0) / np.sqrt(repeat_num)
     return mean*100, err*100
 
 
-def roam_time(baseline: str, time_bin=4):
+def get_repeat_number(file_dir: str):
+    max_num = 0
+    file_list = os.listdir(file_dir)
+    for file_name in file_list:
+        pattern = re.search(r'\d+', file_name)
+        number = 0 if pattern is None else int(pattern.group())
+        if number > max_num:
+            max_num = number
+    return max_num
+
+
+def roam_time(records_dir, baseline, time_bin=4):
+    # 获取实验重复次数，计算standard_error需要
+    repeat_num = get_repeat_number(records_dir)
+
     if baseline == 'small':
-        mean_baseline, err_baseline = roam_time_baseline('small', time_bin=1)
+        mean_baseline, err_baseline = roam_time_baseline('small', records_dir, repeat_num, time_bin=1)
     elif baseline == 'large':
-        mean_baseline, err_baseline = roam_time_baseline('large', time_bin=1)
+        mean_baseline, err_baseline = roam_time_baseline('large', records_dir, repeat_num, time_bin=1)
     else:
         raise ValueError('Choose from small and large')
     mean_baseline = mean_baseline.squeeze(0)
     err_baseline = err_baseline.squeeze(0)
 
-    mean_to_small, err_to_small = roam_time_collector(baseline + '_small', time_bin=time_bin)
-    mean_to_large, err_to_large = roam_time_collector(baseline + '_large', time_bin=time_bin)
+    mean_to_large, err_to_large = roam_time_transfer(baseline + '_large', records_dir, repeat_num, time_bin=time_bin)
+    mean_to_small, err_to_small = roam_time_transfer(baseline + '_small', records_dir, repeat_num, time_bin=time_bin)
 
-    fig, ax = plt.subplots()
+    fig, ax = plt.subplots(dpi=200)
     # draw baseline
     ax.errorbar([0], [mean_baseline], yerr=[err_baseline], marker='^', markersize=8, markerfacecolor='none',
-                label='基准值(小菌斑)' if baseline == 'small' else '基准值(大菌斑)', capsize=3)
+                label='baseline(small)' if baseline == 'small' else 'baseline(large)', capsize=3)
     ax.axvline(x=1, color='grey', linestyle='--')
     ax.plot([0, 2], [mean_baseline, mean_to_small[0]], linestyle=':', color='grey')
     ax.plot([0, 2], [mean_baseline, mean_to_large[0]], linestyle=':', color='grey')
     # draw transfer data
+    color_large = [np.array([164, 48, 42, 255]) / 255, np.array([245, 194, 204, 255]) / 255]
+    color_small = [np.array([0, 0, 237, 255]) / 255, np.array([135, 206, 255, 255]) / 255]
     ax.errorbar(np.arange(time_bin) + 2, mean_to_large, yerr=err_to_large, marker='^',
-                label='小菌斑—>大菌斑' if baseline == 'small' else '大菌斑—>大菌斑',
-                markersize=8, capsize=3, color=np.array([0,0,237,255])/255)
+                label='small—>large' if baseline == 'small' else 'large—>large',
+                markersize=8, capsize=3, color=color_large[0] if baseline == 'large' else color_small[0])
     ax.errorbar(np.arange(time_bin) + 2, mean_to_small, yerr=err_to_small, marker='^',
-                label='小菌斑—>小菌斑' if baseline == 'small' else '大菌斑—>小菌斑',
-                markersize=8, capsize=3, color=np.array([135,206,255,255])/255)
+                label='small—>small' if baseline == 'small' else 'large—>small',
+                markersize=8, capsize=3, color=color_large[1] if baseline == 'large' else color_small[1])
 
-    ax.set_ylabel('漫游率(%)')
-    ax.set_xlabel('训练步数')
-    ax.set_xticklabels(['', '基准值', '', '0-5k', '5k-10k', '10k-15k', '15k-20k'])
-    ax.set_ylim(5, 30)
+    ax.set_ylabel('Roam rate(%)')
+    ax.set_xlabel('Steps after transfer')
+    ax.set_xticklabels(['', 'baseline', '', '0-5k', '5k-10k', '10k-15k', '15k-20k'])
+    #ax.set_ylim(5, 25)
+    plt.title('Roam rate after transfer ' + f'({baseline})')
     plt.legend()
     plt.tight_layout()
-    plt.title(baseline)
+    _, exp_name = os.path.split(records_dir)
+    plt.savefig(os.path.join('exp_plots', exp_name, 'roam_time_' + baseline))
     plt.show()
 
 
@@ -287,40 +255,44 @@ def time_pos_collector(file_path, radius, time_bin=3, area_bin=3):  # 0: edge, 1
     return result
 
 
-def time_pos(pre, post, time_bin=3, area_bin=3):
-    file_list = [pre + '_' + str(i + 1) + '.npz' for i in range(50)]
+def time_pos(pre, post, time_bin=4, area_bin=4):
+    repeat_num = 50
+    file_list = [pre + '_' + str(i + 1) + '.npz' for i in range(repeat_num)]
     collector = []
-    for file in file_list:
-        file_path = os.path.join('records_5_18/', file)
-        tmp = time_pos_collector(file_path, 5 if pre == 'small' else 18)
-        tmp = tmp[-1]
-        collector.append(tmp)
-    baseline = np.array(collector)
-    baseline_data = np.mean(baseline, axis=0)
-    baseline_data = np.expand_dims(baseline_data, axis=0)
+    # for file in file_list:
+    #     file_path = os.path.join('exp_records', 'origin', file)
+    #     tmp = time_pos_collector(file_path, 6 if pre == 'small' else 12)
+    #     tmp = tmp[-1]
+    #     collector.append(tmp)
+    # baseline = np.array(collector)
+    # baseline_data = np.mean(baseline, axis=0)
+    # baseline_data = np.expand_dims(baseline_data, axis=0)
 
-    file_list = [pre + '_' + post + '_' + str(i + 1) + '.npz' for i in range(50)]
+    file_list = [pre + '_' + post + '_' + str(i + 1) + '.npz' for i in range(repeat_num)]
     collector = []
     for file in file_list:
-        file_path = os.path.join('records_5_18/', file)
-        tmp = time_pos_collector(file_path, 5 if post == 'small' else 18)
+        file_path = os.path.join('exp_records', 'origin', file)
+        tmp = time_pos_collector(file_path, 6 if post == 'small' else 12, time_bin=time_bin, area_bin=area_bin)
         collector.append(tmp)
     all_data = np.array(collector)
     transfer_data = np.mean(all_data, axis=0)
-    plot_data = np.concatenate((baseline_data, transfer_data), axis=0).transpose(1, 0)
-
+    # plot_data = np.concatenate((baseline_data, transfer_data), axis=0).transpose(1, 0)
+    plot_data = transfer_data.transpose(1, 0)
     fig, ax = plt.subplots()
-    plt.grid()
-    bar_width = 0.2
-    x = np.arange(time_bin + 1)
-    location_labels = ['Edge', 'Middle', 'Center']
+    bar_width = 0.2 * 0.4
+    x = np.arange(time_bin)
+    # location_labels = ['Edge', 'Middle', 'Center']
     for i in range(area_bin):
         x_0 = x - bar_width * area_bin / 2
         x_plot = x_0 + i * bar_width + bar_width / 2
-        ax.bar(x_plot, plot_data[i] * 100, width=bar_width, label=location_labels[i])
-    ax.set_xticks(x, ['基准值(小菌斑)' if pre == 'small' else '基准值(大菌斑)', '阶段1', '阶段2', '阶段3'])
-    ax.set_ylabel('占比(%)')
-    ax.set_ylim([0, 100])
+        ax.bar(x_plot, plot_data[i], width=bar_width)
+    # 中文标注，运行前需使用matplotlib相关函数设置字体
+    # ax.set_xticks(x, ['基准值(小菌斑)' if pre == 'small' else '基准值(大菌斑)', '阶段1', '阶段2', '阶段3'])
+    # ax.set_xticks(x, ['baseline(small)' if pre == 'small' else 'baseline(large)', 'period 1', 'period 2', 'period 3'])
+    ax.set_xticks(x, ['period 1', 'period 2', 'period 3', 'period 4'])
+    ax.set_ylabel('normalized frequency')
+    ax.set_ylim([0, 0.75])
+    ax.set_title(pre + '-' + post)
 
     plt.legend()
 
@@ -329,16 +301,21 @@ def time_pos(pre, post, time_bin=3, area_bin=3):
 
 
 if __name__ == '__main__':
-    plt.rcParams['font.sans-serif'] = ['SimHei']
-    file = 'logs/' + 'small_1' + '.npz'
+    # 训练记录目录：exp_records，绘图保存目录：exp_plots
+    experiment_name = 'edge_continue'
+    records_dir = os.path.join('exp_records', experiment_name)
+
+    roam_time(records_dir, 'small')
+    # roam_time(records_dir, 'large')
+
+    # file = 'logs/' + 'small_1' + '.npz'
     # draw_average_reward(file)
     # roam_time_baseline('small')
     #roam_time('logs/small_large_4.npz', time_bin=4)
     #roam_time('logs/large_small_4.npz', time_bin=4)
-    #time_pos('small', 'large')
+    #time_pos('small', 'large', area_bin=10)
     #time_pos('small', 'small')
     #time_pos('large', 'small')
     #time_pos('large', 'large')
     #small_large_contrast()
-    roam_time('small')
-    roam_time('large')
+
